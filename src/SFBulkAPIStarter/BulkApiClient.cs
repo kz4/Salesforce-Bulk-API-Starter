@@ -226,6 +226,7 @@ namespace SFBulkAPIStarter
         private void Login()
         {
             _sfService = new SFEnterprise.SforceService();
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
 
             _sfService.Url = _LoginURL;
             _loginResult = _sfService.login(_UserName, _Password);

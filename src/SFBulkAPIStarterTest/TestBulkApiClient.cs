@@ -6,6 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
+using SFBulkAPIStarter.SFEnterprise;
 
 namespace SFBulkAPIStarterTest
 {
@@ -364,6 +366,127 @@ namespace SFBulkAPIStarterTest
             attachmentJob = _apiClient.GetCompletedJob(attachmentJob.Id);
 
             Assert.AreEqual(1, attachmentJob.NumberRecordsProcessed, "The file was not attached to the specified record.");
+        }
+
+        /// <summary>
+        /// Tests inserting, querying and updating 3 Salesforce Accounts
+        /// using Bulk API
+        /// </summary>
+        [TestMethod]
+        public void UpdateBatchResultsTest()
+        {
+            // Bulk insert 3 accounts in Salesforce
+            CreateJobRequest insertAccountJobRequest = buildDefaultInsertAccountCreateJobRequest();
+            Job insertAccountJob = _apiClient.CreateJob(insertAccountJobRequest);
+
+            // Account names that wanted to be bulk inserted on Salesforce
+            List<string> lst = new List<string> { "Testabcd1", "Testabcd2", "Testabcd3" };
+            String batchContents = buildListInsertAccountBatchContents(lst);
+            CreateBatchRequest batchRequest = buildCreateBatchRequest(insertAccountJob.Id, batchContents);
+            Batch accountBatch = _apiClient.CreateBatch(batchRequest);
+
+            _apiClient.CloseJob(insertAccountJob.Id);
+            insertAccountJob = _apiClient.GetCompletedJob(insertAccountJob.Id);
+            Assert.IsTrue(insertAccountJob.NumberRecordsProcessed == 3);
+
+            // Bulk query the 3 accounts that were inserted.
+            CreateJobRequest queryAccountJobRequest = buildDefaultQueryAccountCreateJobRequest();
+            Job queryJob = _apiClient.CreateJob(queryAccountJobRequest);
+            String accountQuery = "SELECT Id FROM Account WHERE Name = 'Testabcd1' or Name = 'Testabcd2' or Name = 'Testabcd3'";
+            CreateBatchRequest queryBatchRequest = buildCreateBatchRequest(queryJob.Id, accountQuery);
+            queryBatchRequest.BatchContentType = BatchContentType.CSV;
+            Batch queryBatch = _apiClient.CreateBatch(queryBatchRequest);
+
+            _apiClient.CloseJob(queryJob.Id);
+
+            queryJob = _apiClient.GetCompletedJob(queryJob.Id);
+
+            String batchQueryResultsList = _apiClient.GetBatchResults(queryBatch.JobId, queryBatch.Id);
+
+            List<String> resultIds = _apiClient.GetResultIds(batchQueryResultsList);
+
+            Assert.AreEqual(1, resultIds.Count);
+            String batchQueryResults = _apiClient.GetBatchResult(queryBatch.JobId, queryBatch.Id, resultIds[0]);
+            List<string> ids = getIdsFromQueryResults(batchQueryResults);
+
+            // Bulk update 3 accounts in Salesforce that were queried
+            CreateJobRequest updateAccountJobRequest = buildDefaultUpdateAccountCreateJobRequest();
+            Job updateAccountJob = _apiClient.CreateJob(updateAccountJobRequest);
+
+            List<Account> accounts = new List<Account>();
+            String updateBatchContents = buildDefaultUpdateAccountBatchContents(ids);
+
+            CreateBatchRequest updateBatchRequest = buildCreateBatchRequest(updateAccountJob.Id, updateBatchContents);
+
+            // Can use the batch ID to query the status, for now, it's not used
+            Batch updateAccountBatch = _apiClient.CreateBatch(updateBatchRequest);
+
+            _apiClient.CloseJob(updateAccountJob.Id);
+
+            updateAccountJob = _apiClient.GetCompletedJob(updateAccountJob.Id);
+
+            Assert.IsTrue(updateAccountJob.NumberRecordsProcessed == 3);
+        }
+
+        private List<string> getIdsFromQueryResults(string batchQueryResults)
+        {
+            List<string> res = new List<string>();
+            string[] lines = batchQueryResults.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.None);
+            foreach (var line in lines)
+            {
+                if (line == "\"Id\"" || string.IsNullOrEmpty(line))
+                {
+                    continue;
+                }
+                res.Add(line);
+            }
+            return res;
+        }
+
+        private string buildListInsertAccountBatchContents(List<string> accountNames)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Name");
+            foreach (var accountName in accountNames)
+            {
+                sb.AppendLine(accountName);
+            }
+
+            string batchContents = sb.ToString();
+            return batchContents;
+        }
+
+        private CreateJobRequest buildDefaultUpdateAccountCreateJobRequest()
+        {
+            return buildDefaultAccountUpdateJobRequest(JobOperation.Update);
+        }
+
+        private CreateJobRequest buildDefaultAccountUpdateJobRequest(JobOperation operation)
+        {
+            CreateJobRequest jobRequest = new CreateJobRequest();
+            jobRequest.ContentType = JobContentType.CSV;
+            jobRequest.Operation = operation;
+            jobRequest.Object = "Account";
+
+            return jobRequest;
+        }
+
+        /// <summary>
+        /// This is an example of updating Account's Website to www.somerandomsite123.com
+        /// </summary>
+        /// <param name="ids"></param>
+        /// <returns></returns>
+        private string buildDefaultUpdateAccountBatchContents(List<string> ids)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Id,Website");
+            foreach (var id in ids)
+            {
+                sb.AppendLine(id + "," + "\"www.somerandomesite123.com\"");
+            }
+
+            string batchContents = sb.ToString();
+            return batchContents;
         }
 
         private string buildDefaultAccountBatchContents()
